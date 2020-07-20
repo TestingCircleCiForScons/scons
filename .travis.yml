@@ -15,7 +15,7 @@ os:
 
 install:
   # needed for Docbook tests, must be in virtualenv context
-  - pip install lxml==4.5.0 ninja
+  - pip install -r requirements.txt
   # do the rest of the image setup
   - ./.travis/install.sh
 
@@ -31,12 +31,11 @@ install:
 # apparently not guaranteed.
 
 jobs:
-
   # pypy is not passing atm, but still report build success for now
   # allow coverage to fail, so we can still do testing for all platforms
   allow_failures:
     - python: pypy3
-    
+
   include:
     - &test_job
       script: python runtest.py -a -t -j 2 || if [[ $? == 2 ]]; then true; else false; fi
@@ -49,18 +48,18 @@ jobs:
 
     - <<: *test_job
       python: 3.6
-      
+
     - <<: *test_job
       python: 3.7
-      dist: xenial  # required for Python >= 3.7
+      dist: xenial # required for Python >= 3.7
 
     - <<: *test_job
       python: 3.8
-      dist: bionic  # required for Python >= 3.8
+      dist: bionic # required for Python >= 3.8
 
     - <<: *test_job
       python: 3.9-dev
-      dist: bionic  # required for Python >= 3.8
+      dist: bionic # required for Python >= 3.8
 
     - &coverage_jobs
       dist: bionic
@@ -77,3 +76,18 @@ jobs:
         - coverage report
         - coverage xml -i -o coverage_xml.xml
         - codecov -X gcov --file coverage_xml.xml
+
+    - &scons_build_job
+      name: SCons Build
+      python: 3.7
+      install:
+        - sudo apt-get -y install docbook-xml docbook-xsl xsltproc libxml2-dev libxslt-dev fop docbook-xsl-doc-pdf
+        - sudo apt-get -y --no-install-recommends install texlive texlive-latex3 biber texmaker ghostscript texlive-bibtex-extra texlive-latex-extra texlive-font-utils latexmk
+        - pip install -r requirements.txt
+      script:
+        - python bin/docs-update-generated.py
+        - python bin/docs-validate.py
+        - python bin/docs-create-example-outputs.py
+        - python scripts/scons.py
+        - ls -l build/dist
+        - python build/scons-local/scons.py --version

@@ -123,7 +123,7 @@ future_reserved_construction_var_names = [
 
 def copy_non_reserved_keywords(dict):
     result = semi_deepcopy(dict)
-    for k in list(result.keys()):
+    for k in result.copy().keys():
         if k in reserved_construction_var_names:
             msg = "Ignoring attempt to set reserved variable `$%s'"
             SCons.Warnings.warn(SCons.Warnings.ReservedVariableWarning, msg % k)
@@ -142,7 +142,7 @@ def _set_future_reserved(env, key, value):
 def _set_BUILDERS(env, key, value):
     try:
         bd = env._dict[key]
-        for k in list(bd.keys()):
+        for k in bd.copy().keys():
             del bd[k]
     except KeyError:
         bd = BuilderDict(bd, env)
@@ -434,13 +434,23 @@ class SubstitutionEnvironment:
         return self._dict.get(key, default)
 
     def has_key(self, key):
+        """Emulates the has_key() method of dictionaries."""
         return key in self._dict
 
     def __contains__(self, key):
         return self._dict.__contains__(key)
 
+    def keys(self):
+        """Emulates the keys() method of dictionaries."""
+        return self._dict.keys()
+
+    def values(self):
+        """Emulates the values() method of dictionaries."""
+        return self._dict.values()
+
     def items(self):
-        return list(self._dict.items())
+        """Emulates the items() method of dictionaries."""
+        return self._dict.items()
 
     def arg2nodes(self, args, node_factory=_null, lookup_list=_null, **kw):
         if node_factory is _null:
@@ -878,9 +888,10 @@ def default_copy_from_cache(src, dst):
 
 
 class Base(SubstitutionEnvironment):
-    """Base class for "real" construction Environments.  These are the
-    primary objects used to communicate dependency and construction
-    information to the build engine.
+    """Base class for "real" construction Environments.
+
+    These are the primary objects used to communicate dependency
+    and construction information to the build engine.
 
     Keyword arguments supplied when the construction Environment
     is created are construction variables used to initialize the
@@ -901,17 +912,19 @@ class Base(SubstitutionEnvironment):
     # dictionary functionality that we actually need and use.
     #######################################################################
 
-    def __init__(self,
-                 platform=None,
-                 tools=None,
-                 toolpath=None,
-                 variables=None,
-                 parse_flags = None,
-                 **kw):
-        """
-        Initialization of a basic SCons construction environment,
-        including setting up special construction variables like BUILDER,
-        PLATFORM, etc., and searching for and applying available Tools.
+    def __init__(
+        self,
+        platform=None,
+        tools=None,
+        toolpath=None,
+        variables=None,
+        parse_flags=None,
+        **kw
+    ):
+        """Initialization of a basic SCons construction environment.
+
+        Sets up special construction variables like BUILDER,
+        PLATFORM, etc., and searches for and applies available Tools.
 
         Note that we do *not* call the underlying base class
         (SubsitutionEnvironment) initialization, because we need to
@@ -1102,11 +1115,24 @@ class Base(SubstitutionEnvironment):
         except KeyError:
             pass
 
-    def _update(self, dict):
-        """Update an environment's values directly, bypassing the normal
-        checks that occur when users try to set items.
+    def _update(self, other):
+        """Private method to update an environment's consvar dict directly.
+
+        Bypasses the normal checks that occur when users try to set items.
         """
-        self._dict.update(dict)
+        self._dict.update(other)
+
+    def _update_onlynew(self, other):
+        """Private method to add new items to an environment's consvar dict.
+
+        Only adds items from `other` whose keys do not already appear in
+        the existing dict; values from `other` are not used for replacement.
+        Bypasses the normal checks that occur when users try to set items.
+        """
+        for k, v in other.items():
+            if k not in self._dict:
+                self._dict[k] = v
+
 
     def get_src_sig_type(self):
         try:
@@ -1382,8 +1408,9 @@ class Base(SubstitutionEnvironment):
         self.scanner_map_delete(kw)
 
     def Clone(self, tools=[], toolpath=None, parse_flags = None, **kw):
-        """Return a copy of a construction Environment.  The
-        copy is like a Python "deep copy"--that is, independent
+        """Return a copy of a construction Environment.
+
+        The copy is like a Python "deep copy"--that is, independent
         copies are made recursively of each objects--except that
         a reference is copied when an object is not deep-copyable
         (like a function).  There are no references to any mutable
@@ -1479,20 +1506,18 @@ class Base(SubstitutionEnvironment):
         # method, which would add self as an initial, fourth argument.
         self.decide_target = function
         self.decide_source = function
-
         self.copy_from_cache = copy_function
 
 
     def Detect(self, progs):
-        """Return the first available program in progs.
+        """Return the first available program from one or more possibilities.
 
-        :param progs: one or more command names to check for
-        :type progs: str or list
-        :returns str: first name from progs that can be found.
+        Args:
+            progs (str or list): one or more command names to check for
 
         """
         if not SCons.Util.is_List(progs):
-            progs = [ progs ]
+            progs = [progs]
         for prog in progs:
             path = self.WhereIs(prog)
             if path: return prog
@@ -1528,10 +1553,10 @@ class Base(SubstitutionEnvironment):
         Args:
           key (optional): if None, format the whole dict of variables.
             Else format the value of `key` (Default value = None)
-          format (optional): specify the format to serialize to.
+          format (str, optional): specify the format to serialize to.
             `"pretty"` generates a pretty-printed string,
             `"json"` a JSON-formatted string.
-            (Default value = None, equivalent to `"pretty"`)
+            (Default value = `"pretty"`)
 
         """
         if key:
@@ -2308,10 +2333,13 @@ class OverrideEnvironment(Base):
     values from the overrides dictionary.
     """
 
-    def __init__(self, subject, overrides={}):
+    def __init__(self, subject, overrides=None):
         if SCons.Debug.track_instances: logInstanceCreation(self, 'Environment.OverrideEnvironment')
         self.__dict__['__subject'] = subject
-        self.__dict__['overrides'] = overrides
+        if overrides is None:
+            self.__dict__['overrides'] = dict()
+        else:
+            self.__dict__['overrides'] = overrides
 
     # Methods that make this class act like a proxy.
     def __getattr__(self, name):
@@ -2338,10 +2366,12 @@ class OverrideEnvironment(Base):
             return self.__dict__['overrides'][key]
         except KeyError:
             return self.__dict__['__subject'].__getitem__(key)
+
     def __setitem__(self, key, value):
         if not is_valid_construction_var(key):
             raise UserError("Illegal construction variable `%s'" % key)
         self.__dict__['overrides'][key] = value
+
     def __delitem__(self, key):
         try:
             del self.__dict__['overrides'][key]
@@ -2356,37 +2386,52 @@ class OverrideEnvironment(Base):
                 raise
             result = None
         return result
+
     def get(self, key, default=None):
         """Emulates the get() method of dictionaries."""
         try:
             return self.__dict__['overrides'][key]
         except KeyError:
             return self.__dict__['__subject'].get(key, default)
+
     def has_key(self, key):
+        """Emulates the has_key() method of dictionaries."""
         try:
             self.__dict__['overrides'][key]
             return 1
         except KeyError:
             return key in self.__dict__['__subject']
+
     def __contains__(self, key):
         if self.__dict__['overrides'].__contains__(key):
             return 1
         return self.__dict__['__subject'].__contains__(key)
+
     def Dictionary(self):
-        """Emulates the items() method of dictionaries."""
         d = self.__dict__['__subject'].Dictionary().copy()
         d.update(self.__dict__['overrides'])
         return d
+
     def items(self):
         """Emulates the items() method of dictionaries."""
-        return list(self.Dictionary().items())
+        return self.Dictionary().items()
+
+    def keys(self):
+        """Emulates the keys() method of dictionaries."""
+        return self.Dictionary().keys()
+
+    def values(self):
+        """Emulates the values() method of dictionaries."""
+        return self.Dictionary().values()
 
     # Overridden private construction environment methods.
-    def _update(self, dict):
-        """Update an environment's values directly, bypassing the normal
-        checks that occur when users try to set items.
-        """
-        self.__dict__['overrides'].update(dict)
+    def _update(self, other):
+        self.__dict__['overrides'].update(other)
+
+    def _update_onlynew(self, other):
+        for k, v in other.items():
+            if k not in self.__dict__['overrides']:
+                self.__dict__['overrides'][k] = v
 
     def gvars(self):
         return self.__dict__['__subject'].gvars()
